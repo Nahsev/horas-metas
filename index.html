@@ -247,6 +247,14 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     }
     if(editing!=='new') h += '<div><button class="btn ghost" id="addgoal">+ Agregar meta</button></div>';
 
+    // proponer fecha
+    h += '<details class="panel sim"'+(propOpen?' open':'')+' id="propbox"><summary>¿Cuándo puedo pagar algo nuevo?</summary>';
+    h += '<p class="note">Poné qué es, cuánto sale y cuántas horas por día querés trabajar. Te digo la fecha más cercana en la que llegás, sin dejar de cubrir tus otras metas.</p>';
+    h += '<div class="row"><label for="pname">Qué es<input id="pname" type="text" maxlength="40" value="'+esc(prop.name)+'" placeholder="Ej: Bafle nuevo"></label>'+
+      '<label for="pamt">Cuánto sale ($)<input id="pamt" type="number" min="0" step="100" inputmode="decimal" value="'+esc(prop.amount)+'"></label></div>';
+    h += '<div class="row"><label for="phrs">Horas por día que querés trabajar<input id="phrs" type="number" min="0.5" max="16" step="0.5" inputmode="decimal" value="'+esc(prop.hrs||defaultHrs(c))+'"></label></div>';
+    h += '<div id="propout">'+propResult(c)+'</div></details>';
+
     // simulador
     h += '<details class="panel sim"'+(simOpen?' open':'')+' id="simbox"><summary>¿Y si sumo algo nuevo?</summary>';
     h += '<p class="note">Probá una compra o gasto y mirá cuánto te cambian las horas. No se guarda hasta que lo agregues.</p>';
@@ -310,6 +318,42 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     for(var i=0;i<n;i++) out.push({id:'sim_'+i,name:(sim.name||'Lo nuevo')+(n>1?' ('+(i+1)+'/'+n+')':''),amount:amt,due:addMonths(due,i)});
     return out;
   }
+  var prop = {name:'',amount:'',hrs:''};
+  function defaultHrs(c){ return Math.max(1, Math.ceil((c.hoursPerDay||0)*2)/2 + 1); }
+  // horas por día que pide el plan si agrego "extra" (solo desde hoy, rápido)
+  function hoursWith(extra, base){
+    var keepGoals=S.goals; S.goals=S.goals.concat(extra);
+    try{ var r=need(base.from, base.done, false).perDay; } finally { S.goals=keepGoals; }
+    return base.nr>0 ? r/base.nr : Infinity;
+  }
+  function propose(c){
+    var amt=+String(prop.amount).replace(',','.')||0, lim=+String(prop.hrs||defaultHrs(c)).replace(',','.')||0;
+    if(!(amt>0) || !(lim>0)) return null;
+    var g=function(due){ return [{id:'prop_0',name:prop.name||'Lo nuevo',amount:amt,due:due}]; };
+    var first=ymd(add(parse(c.from),1)), lo=1, hi=365*4, far=ymd(add(parse(c.from),hi));
+    if(hoursWith(g(far),c) > lim+1e-9) return {impossible:true, lim:lim, now:c.hoursPerDay};
+    if(hoursWith(g(first),c) <= lim+1e-9) return {due:first, lim:lim, amt:amt, hrs:hoursWith(g(first),c)};
+    while(hi-lo>1){ var mid=(lo+hi)>>1; if(hoursWith(g(ymd(add(parse(c.from),mid))),c) <= lim+1e-9) hi=mid; else lo=mid; }
+    var due=ymd(add(parse(c.from),hi));
+    return {due:due, lim:lim, amt:amt, hrs:hoursWith(g(due),c)};
+  }
+  function propResult(c){
+    var r=propose(c);
+    if(!r) return '<p class="note">Poné cuánto sale para ver la fecha.</p>';
+    if(r.impossible) return '<div class="banner">Con tus metas de ahora ya necesitás '+hm(r.now)+' por día, más que las '+hm(r.lim)+' que pusiste. Subí las horas para que te proponga una fecha.</div>';
+    var days=Math.round((parse(r.due)-parse(TODAY))/864e5);
+    return '<div class="simres"><div class="simcol"><span class="l">Lo podés pagar el</span><span class="v num strong">'+cap(fdate(r.due,true))+'</span><span class="note">en '+days+' día'+(days===1?'':'s')+'</span></div>'+
+      '<div class="simcol"><span class="l">Trabajando</span><span class="v num">'+hm(r.hrs)+'</span><span class="note">por día, desde hoy</span></div>'+
+      '<div class="simcol"><span class="l">Te cuesta</span><span class="v num">'+hm(c.nr>0? r.amt/c.nr : 0)+'</span><span class="note">de trabajo en total</span></div></div>'+
+      '<div class="row"><button class="btn" id="propadd">Agregar a mis metas con esta fecha</button><button class="btn ghost" id="propclear">Limpiar</button></div>';
+  }
+  function bindProp(){
+    on('propadd',function(){ var c=calc(), r=propose(c); if(!r||r.impossible) return;
+      S.goals.push({id:'g'+Date.now().toString(36)+'_0',name:(prop.name||'Lo nuevo').trim(),amount:r.amt,due:r.due});
+      prop={name:'',amount:'',hrs:''}; propOpen=false; save(); });
+    on('propclear',function(){ prop={name:'',amount:'',hrs:''}; render(); });
+  }
+
   function simResult(c){
     var extra=simGoals(); if(!extra.length) return '<p class="note">Poné cuánto sale para ver el resultado.</p>';
     var before=c; S.goals=S.goals.concat(extra); var after; try{ after=calc(); } finally { S.goals=S.goals.filter(function(g){return g.id.indexOf('sim_')!==0;}); }
@@ -343,7 +387,7 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
   function num(id){ return parseFloat(String(document.getElementById(id).value).replace(',','.'))||0; }
   function on(id,fn){ var el=document.getElementById(id); if(el) el.onclick=fn; }
 
-  var cfgOpen = false, bkMsg = '', confirmReset = false, confirmDel = null, simOpen = false;
+  var cfgOpen = false, bkMsg = '', confirmReset = false, confirmDel = null, simOpen = false, propOpen = false;
   function val(id){ var el=document.getElementById(id); return el? el.value : ''; }
   function bindSim(){
     on('simadd',function(){ var extra=simGoals(); if(!extra.length) return; var base=Date.now().toString(36);
@@ -367,6 +411,10 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     ['sname','samt','scuotas','sdue'].forEach(function(id){ var el=document.getElementById(id); if(!el) return;
       el.oninput=function(){ sim={name:val('sname'),amount:val('samt'),cuotas:val('scuotas'),due:val('sdue')}; document.getElementById('simout').innerHTML=simResult(calc()); bindSim(); }; });
     bindSim();
+    var pb=document.getElementById('propbox'); if(pb) pb.ontoggle=function(){ propOpen=pb.open; };
+    ['pname','pamt','phrs'].forEach(function(id){ var el=document.getElementById(id); if(!el) return;
+      el.oninput=function(){ prop={name:val('pname'),amount:val('pamt'),hrs:val('phrs')}; document.getElementById('propout').innerHTML=propResult(calc()); bindProp(); }; });
+    bindProp();
     var cb=document.getElementById('cfgbox'); if(cb) cb.ontoggle=function(){ cfgOpen=cb.open; };
     on('bkout',exportBackup);
     var bi=document.getElementById('bkin'); if(bi) bi.onchange=function(){ if(bi.files[0]) importBackup(bi.files[0]); };
