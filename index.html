@@ -201,7 +201,20 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     return {total:total, have:+S.have||0, done:done, remaining:Math.max(0,total-Math.max(0,done)), perDay:nd.perDay, tight:nd.goal, hoursPerDay: nr>0? nd.perDay/nr : 0, nr:nr, info:info, ds:ds, loggedToday:loggedToday, al:alloc(Math.max(0,done)), paid:paidSum(), from:from};
   }
 
+  // Metas con fecha automática: se recalculan cada vez, en el orden en que las agregaste
+  function resolveFlex(){
+    var flex=S.goals.filter(function(g){ return g.flex && !g.paid; }).sort(function(a,b){ return (a.flexAt||0)-(b.flexAt||0); });
+    if(!flex.length) return;
+    var all=S.goals, fixed=all.filter(function(g){ return !(g.flex && !g.paid); });
+    try{
+      S.goals=fixed.slice(); var c0=calc();
+      flex.forEach(function(g){ var r=simulate(+g.hrs||1, +g.amount||0, c0);
+        if(r.due){ g.due=r.due; delete g.noDate; } else g.noDate=true;
+        S.goals.push(g); });
+    } finally { S.goals=all; }
+  }
   function render(){
+    resolveFlex();
     var c = calc(), pct = c.total? Math.min(100, c.done/c.total*100):0, h = '';
     h += '<header><h1>Horas para mis metas</h1><p class="sub">'+(goals().length? goals().length+' meta'+(goals().length===1?'':'s')+' pendiente'+(goals().length===1?'':'s')+' · '+money(c.total)+' en total':(S.goals.length?'Todas tus metas están pagadas':'Todavía no cargaste metas'))+' · te quedás con el '+(100-S.pct)+'% de lo que ganás</p></header>';
     h += '<section class="hero">';
@@ -233,7 +246,7 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
       if(editing===g.id){ h += goalForm(g); return; }
       h += '<div class="goal '+st+'"><div class="gtop"><div class="gname">'+esc(g.name)+'</div><div class="gamt num">'+money(g.amount)+'</div></div>'+
         '<div class="gbar"><i style="width:'+p.toFixed(1)+'%"></i></div>'+
-        '<div class="gtop note"><span>'+(left<=1?'✓ Cubierta':(g.due<TODAY?'Venció el '+fdate(g.due)+' · faltaron '+money(left):'Vence el '+fdate(g.due)+' · faltan '+money(left)))+'</span>'+
+        '<div class="gtop note"><span>'+(left<=1?'✓ Cubierta':(g.flex? (g.noDate?'Con '+hm(+g.hrs)+' por día no llegás en 5 años':'Fecha automática: '+fdate(g.due)+' · trabajando '+hm(+g.hrs)+' por día · faltan '+money(left)) : (g.due<TODAY?'Venció el '+fdate(g.due)+' · faltaron '+money(left):'Vence el '+fdate(g.due)+' · faltan '+money(left))))+'</span>'+
         '<span class="gact"><button class="link" data-pay="'+g.id+'">Marcar pagada</button><button class="link" data-edit="'+g.id+'">Editar</button><button class="link" data-del="'+g.id+'">'+(confirmDel===g.id?'¿Borrar? Tocá de nuevo':'Borrar')+'</button></span></div></div>';
     });
     if(editing==='new') h += goalForm({id:'new',name:'',amount:'',due:''});
@@ -345,12 +358,12 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     var alts=r.alts.filter(function(a){ return a.due && a.due<r.due; });
     if(alts.length) out+='<div class="alts">'+alts.map(function(a){ return '<div><span class="num">'+hm(a.h)+' por día</span><span>'+fdate(a.due)+' · '+inDays(a.due)+'</span></div>'; }).join('')+'</div>';
     if(r.lateAt) out+='<p class="note">Ojo: trabajando '+hm(r.lim)+' por día no llegás a tiempo con <b>'+esc(r.lateName)+'</b> (te faltaría plata el '+fdate(r.lateAt)+'). La fecha de arriba ya cuenta que primero pagás eso.</p>';
-    out+='<div class="row"><button class="btn" id="propadd">Agregar a mis metas para el '+fdate(r.due)+'</button><button class="btn ghost" id="propclear">Limpiar</button></div>';
+    out+='<p class="note">Si la agregás, la fecha se va a mover sola cuando cambien tus otras metas o lo que vas ganando.</p><div class="row"><button class="btn" id="propadd">Agregar a mis metas</button><button class="btn ghost" id="propclear">Limpiar</button></div>';
     return out;
   }
   function bindProp(){
     on('propadd',function(){ var c=calc(), r=propose(c); if(!r||!r.due) return;
-      S.goals.push({id:'g'+Date.now().toString(36)+'_0',name:(prop.name||'Lo nuevo').trim(),amount:r.amt,due:r.due});
+      S.goals.push({id:'g'+Date.now().toString(36)+'_0',name:(prop.name||'Lo nuevo').trim(),amount:r.amt,due:r.due,flex:true,hrs:r.lim,flexAt:Date.now()});
       prop={name:'',amount:'',hrs:''}; propOpen=false; save(); });
     on('propclear',function(){ prop={name:'',amount:'',hrs:''}; render(); });
   }
@@ -375,8 +388,10 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
   function goalForm(g){
     return '<div class="goal editing"><div class="row"><label for="gname">Nombre<input id="gname" type="text" maxlength="40" value="'+esc(g.name)+'" placeholder="Ej: Alquiler"></label>'+
       '<label for="gamt">Monto ($)<input id="gamt" type="number" min="0" step="100" value="'+(g.amount||'')+'"></label>'+
-      '<label for="gdue">'+(g.id==='new'?'Vence (primera cuota)':'Vence')+'<input id="gdue" type="date" value="'+(g.due||'')+'"></label>'+
+      (g.flex? '<label for="ghrs">Horas por día que podés trabajar<input id="ghrs" type="number" min="0.5" max="16" step="0.5" value="'+esc(g.hrs)+'"></label>' :
+      '<label for="gdue">'+(g.id==='new'?'Vence (primera cuota)':'Vence')+'<input id="gdue" type="date" value="'+(g.due||'')+'"></label>')+
       (g.id==='new'?'<label for="gcuotas">Cuotas mensuales<input id="gcuotas" type="number" min="1" max="36" step="1" value="1"></label>':'')+'</div>'+
+      (g.flex?'<label class="chk"><input id="gflex" type="checkbox" checked> Fecha automática (se mueve sola si cambian tus otras metas)</label>':'')+
       (g.id==='new'?'<p class="note">Si es algo que pagás todos los meses, poné cuántas cuotas son y se crea una meta por mes con el mismo monto.</p>':'')+
       '<p class="note" id="gerr"></p><div class="row"><button class="btn" id="savegoal" data-id="'+g.id+'">Guardar meta</button><button class="btn ghost" id="cancelgoal">Cancelar</button></div></div>';
   }
@@ -424,7 +439,15 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     on('addgoal',function(){ editing='new'; render(); var n=document.getElementById('gname'); if(n) n.focus(); });
     on('cancelgoal',function(){ editing=null; render(); });
     on('savegoal',function(){
-      var name=document.getElementById('gname').value.trim(), amt=num('gamt'), due=document.getElementById('gdue').value, err=document.getElementById('gerr');
+      var name=document.getElementById('gname').value.trim(), amt=num('gamt'), err=document.getElementById('gerr');
+      var fx=document.getElementById('gflex'), hrsIn=document.getElementById('ghrs');
+      if(fx && fx.checked){
+        var hh=num('ghrs'); if(!name){ err.textContent='Ponele un nombre a la meta.'; return; } if(!(amt>0)){ err.textContent='Poné cuánta plata necesitás.'; return; }
+        if(!(hh>0)){ err.textContent='Poné cuántas horas por día podés trabajar.'; return; }
+        S.goals.forEach(function(g){ if(g.id===editing){ g.name=name; g.amount=amt; g.hrs=hh; } }); editing=null; save(); return;
+      }
+      if(fx && !fx.checked){ S.goals.forEach(function(g){ if(g.id===editing){ delete g.flex; delete g.hrs; delete g.flexAt; delete g.noDate; } }); save(); return; }
+      var due=document.getElementById('gdue').value;
       if(!name){ err.textContent='Ponele un nombre a la meta.'; return; }
       if(!(amt>0)){ err.textContent='Poné cuánta plata necesitás.'; return; }
       if(!due){ err.textContent='Elegí la fecha de vencimiento.'; return; }
