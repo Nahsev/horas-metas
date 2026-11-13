@@ -113,6 +113,8 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
 @media (max-width:460px){.day{min-height:58px;padding:4px}.day .q{display:none}.big .n{font-size:2.6rem}}
 @media (prefers-reduced-motion:no-preference){.bar i{transition:width .4s ease}}
 
+.alts{display:flex;flex-direction:column;gap:4px;font-size:.85rem}
+.alts div{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:6px 10px;border-radius:8px;background:var(--bg)}
 .bk{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:12px}
 .row label.filebtn{flex:0 0 auto}
 .filebtn{display:inline-flex;flex-direction:row;align-items:center;font-size:inherit;font-weight:600;color:var(--accent);border:1px solid var(--accent);border-radius:9px;padding:9px 16px;cursor:pointer}
@@ -249,10 +251,10 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
 
     // proponer fecha
     h += '<details class="panel sim"'+(propOpen?' open':'')+' id="propbox"><summary>¿Cuándo puedo pagar algo nuevo?</summary>';
-    h += '<p class="note">Poné qué es, cuánto sale y cuántas horas por día querés trabajar. Te digo la fecha más cercana en la que llegás, sin dejar de cubrir tus otras metas.</p>';
+    h += '<p class="note">Poné qué es, cuánto sale y cuántas horas por día podés trabajar. Te digo qué día la podés comprar, pagando primero tus otras metas.</p>';
     h += '<div class="row"><label for="pname">Qué es<input id="pname" type="text" maxlength="40" value="'+esc(prop.name)+'" placeholder="Ej: Bafle nuevo"></label>'+
       '<label for="pamt">Cuánto sale ($)<input id="pamt" type="number" min="0" step="100" inputmode="decimal" value="'+esc(prop.amount)+'"></label></div>';
-    h += '<div class="row"><label for="phrs">Horas por día que querés trabajar<input id="phrs" type="number" min="0.5" max="16" step="0.5" inputmode="decimal" value="'+esc(prop.hrs||defaultHrs(c))+'"></label></div>';
+    h += '<div class="row"><label for="phrs">Horas por día que podés trabajar<input id="phrs" type="number" min="0.5" max="16" step="0.5" inputmode="decimal" value="'+esc(prop.hrs||defaultHrs(c))+'"></label></div>';
     h += '<div id="propout">'+propResult(c)+'</div></details>';
 
     // calendario
@@ -310,36 +312,44 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     return out;
   }
   var prop = {name:'',amount:'',hrs:''};
-  function defaultHrs(c){ return Math.max(1, Math.ceil((c.hoursPerDay||0)*2)/2 + 1); }
-  // horas por día que pide el plan si agrego "extra" (solo desde hoy, rápido)
-  function hoursWith(extra, base){
-    var keepGoals=S.goals; S.goals=S.goals.concat(extra);
-    try{ var r=need(base.from, base.done, false).perDay; } finally { S.goals=keepGoals; }
-    return base.nr>0 ? r/base.nr : Infinity;
+  function defaultHrs(c){ return Math.max(1, Math.round(c.hoursPerDay||0) || 6); }
+  // Simula: trabajás "lim" horas cada día laborable desde hoy. Tus metas se pagan primero, cada una en su fecha.
+  // La compra entra el primer día a partir del cual, de ahí en adelante, siempre te alcanza para todo.
+  function simulate(lim, amt, c){
+    var rate=lim*c.nr, H=365*5, start=parse(c.from), money=c.done, dueSum=0, slack=[], dates=[];
+    var gs=goals().map(function(g){ return {d:g.due<c.from?c.from:g.due, a:+g.amount||0, n:g.name}; });
+    var gi=0, lateAt=null, lateName='';
+    for(var i=0;i<=H;i++){
+      var k=ymd(add(start,i)); if(isWork(k)) money+=rate;
+      while(gi<gs.length && gs[gi].d<=k){ dueSum+=gs[gi].a; gi++; }
+      var sl=money-dueSum; slack.push(sl); dates.push(k);
+      if(sl<-1 && lateAt===null){ lateAt=k; lateName=gs[gi-1]? gs[gi-1].n : ''; }
+    }
+    var min=Infinity, found=-1;
+    for(var j=H;j>=0;j--){ min=Math.min(min,slack[j]); if(min>=amt-1) found=j; }
+    return {due: found>=0? dates[found] : null, lateAt:lateAt, lateName:lateName, lim:lim, amt:amt};
   }
   function propose(c){
     var amt=+String(prop.amount).replace(',','.')||0, lim=+String(prop.hrs||defaultHrs(c)).replace(',','.')||0;
-    if(!(amt>0) || !(lim>0)) return null;
-    var g=function(due){ return [{id:'prop_0',name:prop.name||'Lo nuevo',amount:amt,due:due}]; };
-    var first=ymd(add(parse(c.from),1)), lo=1, hi=365*4, far=ymd(add(parse(c.from),hi));
-    if(hoursWith(g(far),c) > lim+1e-9) return {impossible:true, lim:lim, now:c.hoursPerDay};
-    if(hoursWith(g(first),c) <= lim+1e-9) return {due:first, lim:lim, amt:amt, hrs:hoursWith(g(first),c)};
-    while(hi-lo>1){ var mid=(lo+hi)>>1; if(hoursWith(g(ymd(add(parse(c.from),mid))),c) <= lim+1e-9) hi=mid; else lo=mid; }
-    var due=ymd(add(parse(c.from),hi));
-    return {due:due, lim:lim, amt:amt, hrs:hoursWith(g(due),c)};
+    if(!(amt>0) || !(lim>0) || !(c.nr>0)) return null;
+    var r=simulate(lim,amt,c); r.alts=[lim+1,lim+2,lim+3].filter(function(x){return x<=16;}).map(function(x){ return {h:x, due:simulate(x,amt,c).due}; });
+    return r;
   }
+  function inDays(k){ var d=Math.round((parse(k)-parse(TODAY))/864e5); return d<=0?'hoy':'en '+d+' día'+(d===1?'':'s'); }
   function propResult(c){
     var r=propose(c);
     if(!r) return '<p class="note">Poné cuánto sale para ver la fecha.</p>';
-    if(r.impossible) return '<div class="banner">Con tus metas de ahora ya necesitás '+hm(r.now)+' por día, más que las '+hm(r.lim)+' que pusiste. Subí las horas para que te proponga una fecha.</div>';
-    var days=Math.round((parse(r.due)-parse(TODAY))/864e5);
-    return '<div class="simres"><div class="simcol"><span class="l">Lo podés pagar el</span><span class="v num strong">'+cap(fdate(r.due,true))+'</span><span class="note">en '+days+' día'+(days===1?'':'s')+'</span></div>'+
-      '<div class="simcol"><span class="l">Trabajando</span><span class="v num">'+hm(r.hrs)+'</span><span class="note">por día, desde hoy</span></div>'+
-      '<div class="simcol"><span class="l">Te cuesta</span><span class="v num">'+hm(c.nr>0? r.amt/c.nr : 0)+'</span><span class="note">de trabajo en total</span></div></div>'+
-      '<div class="row"><button class="btn" id="propadd">Agregar a mis metas con esta fecha</button><button class="btn ghost" id="propclear">Limpiar</button></div>';
+    if(!r.due) return '<div class="banner">Con '+hm(r.lim)+' por día no te alcanza ni en 5 años. Probá con más horas.</div>';
+    var out='<div class="simres"><div class="simcol"><span class="l">Trabajando '+hm(r.lim)+' por día</span><span class="v num strong">'+cap(fdate(r.due,true))+'</span><span class="note">la podés comprar '+inDays(r.due)+'</span></div>'+
+      '<div class="simcol"><span class="l">Te cuesta</span><span class="v num">'+hm(r.amt/c.nr)+'</span><span class="note">de trabajo en total</span></div></div>';
+    var alts=r.alts.filter(function(a){ return a.due && a.due<r.due; });
+    if(alts.length) out+='<div class="alts">'+alts.map(function(a){ return '<div><span class="num">'+hm(a.h)+' por día</span><span>'+fdate(a.due)+' · '+inDays(a.due)+'</span></div>'; }).join('')+'</div>';
+    if(r.lateAt) out+='<p class="note">Ojo: trabajando '+hm(r.lim)+' por día no llegás a tiempo con <b>'+esc(r.lateName)+'</b> (te faltaría plata el '+fdate(r.lateAt)+'). La fecha de arriba ya cuenta que primero pagás eso.</p>';
+    out+='<div class="row"><button class="btn" id="propadd">Agregar a mis metas para el '+fdate(r.due)+'</button><button class="btn ghost" id="propclear">Limpiar</button></div>';
+    return out;
   }
   function bindProp(){
-    on('propadd',function(){ var c=calc(), r=propose(c); if(!r||r.impossible) return;
+    on('propadd',function(){ var c=calc(), r=propose(c); if(!r||!r.due) return;
       S.goals.push({id:'g'+Date.now().toString(36)+'_0',name:(prop.name||'Lo nuevo').trim(),amount:r.amt,due:r.due});
       prop={name:'',amount:'',hrs:''}; propOpen=false; save(); });
     on('propclear',function(){ prop={name:'',amount:'',hrs:''}; render(); });
