@@ -23,15 +23,15 @@ body{margin:0}
 /* Layout: ficha de horario — resumen arriba, calendario de fichaje abajo, panel de edición por día */
 :root{
   --bg:#eef1f4; --card:#ffffff; --ink:#18263a; --muted:#5f6d80; --line:#d5dbe3;
-  --accent:#2446c9; --ok:#1d8a4e; --okbg:#e2f4ea; --miss:#c23a2b; --missbg:#fbe7e4; --off:#e6e9ee;
+  --accent:#2446c9; --ok:#1d8a4e; --okbg:#e2f4ea; --miss:#c23a2b; --missbg:#fbe7e4; --off:#e6e9ee; --star:#c98a00; --starbg:#fff8e6;
   --display:"Bricolage Grotesque",system-ui,sans-serif; --body:"Figtree",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#10151d; --card:#18202b; --ink:#e7ecf3; --muted:#9aa6b6; --line:#2b3645;
-  --accent:#7d97ff; --ok:#5fd394; --okbg:#173326; --miss:#ff8a7c; --missbg:#3a1c19; --off:#1f2833; color-scheme:dark}}
+  --accent:#7d97ff; --ok:#5fd394; --okbg:#173326; --miss:#ff8a7c; --missbg:#3a1c19; --off:#1f2833; --star:#f2c14e; --starbg:#2a2516; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#10151d; --card:#18202b; --ink:#e7ecf3; --muted:#9aa6b6; --line:#2b3645;
-  --accent:#7d97ff; --ok:#5fd394; --okbg:#173326; --miss:#ff8a7c; --missbg:#3a1c19; --off:#1f2833; color-scheme:dark}
+  --accent:#7d97ff; --ok:#5fd394; --okbg:#173326; --miss:#ff8a7c; --missbg:#3a1c19; --off:#1f2833; --star:#f2c14e; --starbg:#2a2516; color-scheme:dark}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45}
 .wrap{max-width:760px;margin:0 auto;padding:24px 16px 48px;display:flex;flex-direction:column;gap:20px}
 h1{font-family:var(--display);font-size:1.7rem;margin:0;letter-spacing:-.01em;text-wrap:balance}
@@ -88,6 +88,10 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600;font-s
 .goals{display:flex;flex-direction:column;gap:10px}
 .goal{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 .goal.ok{border-color:var(--ok)} .goal.miss{border-color:var(--miss)}
+.goal.star{border:2px solid var(--star);background:var(--starbg)}
+.starbtn{font:inherit;font-size:1.15rem;line-height:1;background:none;border:0;padding:0 6px 0 0;cursor:pointer;color:var(--muted);vertical-align:-1px}
+.goal.star .starbtn{color:var(--star)}
+.starbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 .gtop{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
 .gname{font-weight:600;font-size:1rem;min-width:0;overflow-wrap:anywhere}
 .gamt{font-size:.95rem}
@@ -203,7 +207,7 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
 
   // Metas con fecha automática: se recalculan cada vez, en el orden en que las agregaste
   function resolveFlex(){
-    var flex=S.goals.filter(function(g){ return g.flex && !g.paid; }).sort(function(a,b){ return (a.flexAt||0)-(b.flexAt||0); });
+    var flex=S.goals.filter(function(g){ return g.flex && !g.paid; }).sort(function(a,b){ return ((b.star?1:0)-(a.star?1:0)) || ((a.flexAt||0)-(b.flexAt||0)); });
     if(!flex.length) return;
     var all=S.goals, fixed=all.filter(function(g){ return !(g.flex && !g.paid); });
     try{
@@ -240,11 +244,12 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     h += '<div class="goal have"><div class="row"><label for="havein">Plata que tengo ahora ($)<input id="havein" type="number" min="0" step="100" inputmode="decimal" value="'+Math.round(Math.max(0,c.done))+'"></label><button class="btn ghost" id="savehave">Corregir</button></div>'+
       '<p class="note">Se suma solo lo que vas cargando en el calendario (ya sin el '+S.pct+'%) y se resta lo que marcás como pagado. Si no coincide con lo que tenés de verdad, poné el número real y tocá Corregir.</p>'+
       (apartSum()>0?'<p class="note">Anotado aparte (no se suma): <b class="num">'+money(apartSum())+'</b> brutos.</p>':'')+'</div><div class="goals">';
-    goals().forEach(function(g){
+    var shownGoals=goals().filter(function(g){return g.star;}).concat(goals().filter(function(g){return !g.star;}));
+    shownGoals.forEach(function(g){
       var got=c.al[g.id]||0, left=Math.max(0,(+g.amount||0)-got), p=g.amount? Math.min(100,got/g.amount*100):0;
-      var st = left<=1 ? 'ok' : (g.due<TODAY ? 'miss' : '');
+      var st = (left<=1 ? 'ok' : (g.due<TODAY ? 'miss' : ''))+(g.star?' star':'');
       if(editing===g.id){ h += goalForm(g); return; }
-      h += '<div class="goal '+st+'"><div class="gtop"><div class="gname">'+esc(g.name)+'</div><div class="gamt num">'+money(g.amount)+'</div></div>'+
+      h += '<div class="goal '+st+'"><div class="gtop"><div class="gname"><button class="starbtn" data-star="'+g.id+'" aria-pressed="'+(g.star?'true':'false')+'" title="'+(g.star?'Quitar de destacadas':'Destacar')+'">'+(g.star?'★':'☆')+'</button>'+esc(g.name)+'</div><div class="gamt num">'+money(g.amount)+'</div></div>'+
         '<div class="gbar"><i style="width:'+p.toFixed(1)+'%"></i></div>'+
         '<div class="gtop note"><span>'+(left<=1?'✓ Cubierta':(g.flex? (g.noDate?'Con '+hm(+g.hrs)+' por día no llegás en 5 años':'Fecha automática: '+fdate(g.due)+' · trabajando '+hm(+g.hrs)+' por día · faltan '+money(left)) : (g.due<TODAY?'Venció el '+fdate(g.due)+' · faltaron '+money(left):'Vence el '+fdate(g.due)+' · faltan '+money(left))))+'</span>'+
         '<span class="gact"><button class="link" data-pay="'+g.id+'">Marcar pagada</button><button class="link" data-edit="'+g.id+'">Editar</button><button class="link" data-del="'+g.id+'">'+(confirmDel===g.id?'¿Borrar? Tocá de nuevo':'Borrar')+'</button></span></div></div>';
@@ -434,6 +439,8 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     var cb=document.getElementById('cfgbox'); if(cb) cb.ontoggle=function(){ cfgOpen=cb.open; };
     on('bkout',exportBackup);
     var bi=document.getElementById('bkin'); if(bi) bi.onchange=function(){ if(bi.files[0]) importBackup(bi.files[0]); };
+    app.querySelectorAll('[data-star]').forEach(function(b){ b.onclick=function(){ var id=b.getAttribute('data-star');
+      S.goals.forEach(function(g){ if(g.id===id){ if(g.star) delete g.star; else g.star=true; } }); save(); }; });
     on('pastdays',function(){ showPast=!showPast; render(); });
     on('moremonths',function(){ showAll=!showAll; render(); });
     on('addgoal',function(){ editing='new'; render(); var n=document.getElementById('gname'); if(n) n.focus(); });
