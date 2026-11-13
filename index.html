@@ -255,15 +255,6 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     h += '<div class="row"><label for="phrs">Horas por día que querés trabajar<input id="phrs" type="number" min="0.5" max="16" step="0.5" inputmode="decimal" value="'+esc(prop.hrs||defaultHrs(c))+'"></label></div>';
     h += '<div id="propout">'+propResult(c)+'</div></details>';
 
-    // simulador
-    h += '<details class="panel sim"'+(simOpen?' open':'')+' id="simbox"><summary>¿Y si sumo algo nuevo?</summary>';
-    h += '<p class="note">Probá una compra o gasto y mirá cuánto te cambian las horas. No se guarda hasta que lo agregues.</p>';
-    h += '<div class="row"><label for="sname">Qué es<input id="sname" type="text" maxlength="40" value="'+esc(sim.name)+'" placeholder="Ej: Zapatillas"></label>'+
-      '<label for="samt">Cuánto sale ($ por cuota)<input id="samt" type="number" min="0" step="100" inputmode="decimal" value="'+esc(sim.amount)+'"></label></div>';
-    h += '<div class="row"><label for="scuotas">Cuotas<input id="scuotas" type="number" min="1" max="36" step="1" value="'+esc(sim.cuotas)+'"></label>'+
-      '<label for="sdue">Primer pago<input id="sdue" type="date" value="'+esc(sim.due||defaultSimDue())+'"></label></div>';
-    h += '<div id="simout">'+simResult(c)+'</div></details>';
-
     // calendario
     h += '<section class="section-h"><h2>Calendario</h2><div class="legend"><span><i class="dot" style="background:var(--ok)"></i>cumplido</span><span><i class="dot" style="background:var(--miss)"></i>quedó corto</span><span><i class="dot" style="background:var(--off);border:1px dashed var(--muted)"></i>libre</span><span><i class="dot" style="background:var(--card);border:1px dashed var(--accent)"></i>aparte</span></div></section>';
     h += '<div class="dows">'+[1,2,3,4,5,6,0].map(function(i){return '<div>'+DOW[i]+'</div>';}).join('')+'</div><div class="grid">';
