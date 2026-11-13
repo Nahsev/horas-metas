@@ -113,9 +113,6 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
 @media (max-width:460px){.day{min-height:58px;padding:4px}.day .q{display:none}.big .n{font-size:2.6rem}}
 @media (prefers-reduced-motion:no-preference){.bar i{transition:width .4s ease}}
 
-.price{display:flex;flex-direction:column;gap:6px;border-top:1px dashed var(--line);padding-top:8px}
-.price a.link{font-size:.85rem;font-weight:600;color:var(--accent);text-decoration:underline;align-self:flex-start}
-.price button.link{align-self:flex-start}
 .bk{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:12px}
 .row label.filebtn{flex:0 0 auto}
 .filebtn{display:inline-flex;flex-direction:row;align-items:center;font-size:inherit;font-weight:600;color:var(--accent);border:1px solid var(--accent);border-radius:9px;padding:9px 16px;cursor:pointer}
@@ -235,8 +232,7 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
       h += '<div class="goal '+st+'"><div class="gtop"><div class="gname">'+esc(g.name)+'</div><div class="gamt num">'+money(g.amount)+'</div></div>'+
         '<div class="gbar"><i style="width:'+p.toFixed(1)+'%"></i></div>'+
         '<div class="gtop note"><span>'+(left<=1?'✓ Cubierta':(g.due<TODAY?'Venció el '+fdate(g.due)+' · faltaron '+money(left):'Vence el '+fdate(g.due)+' · faltan '+money(left)))+'</span>'+
-        '<span class="gact"><button class="link" data-pay="'+g.id+'">Marcar pagada</button><button class="link" data-edit="'+g.id+'">Editar</button><button class="link" data-del="'+g.id+'">'+(confirmDel===g.id?'¿Borrar? Tocá de nuevo':'Borrar')+'</button></span></div>'+
-        priceRow(g)+'</div>';
+        '<span class="gact"><button class="link" data-pay="'+g.id+'">Marcar pagada</button><button class="link" data-edit="'+g.id+'">Editar</button><button class="link" data-del="'+g.id+'">'+(confirmDel===g.id?'¿Borrar? Tocá de nuevo':'Borrar')+'</button></span></div></div>';
     });
     if(editing==='new') h += goalForm({id:'new',name:'',amount:'',due:''});
     h += '</div>';
@@ -256,7 +252,6 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     h += '<p class="note">Poné qué es, cuánto sale y cuántas horas por día querés trabajar. Te digo la fecha más cercana en la que llegás, sin dejar de cubrir tus otras metas.</p>';
     h += '<div class="row"><label for="pname">Qué es<input id="pname" type="text" maxlength="40" value="'+esc(prop.name)+'" placeholder="Ej: Bafle nuevo"></label>'+
       '<label for="pamt">Cuánto sale ($)<input id="pamt" type="number" min="0" step="100" inputmode="decimal" value="'+esc(prop.amount)+'"></label></div>';
-    h += '<div class="row"><label for="plink">Link del producto (opcional)<input id="plink" type="url" inputmode="url" value="'+esc(prop.link||'')+'" placeholder="https://articulo.mercadolibre.com.ar/..."></label></div>';
     h += '<div class="row"><label for="phrs">Horas por día que querés trabajar<input id="phrs" type="number" min="0.5" max="16" step="0.5" inputmode="decimal" value="'+esc(prop.hrs||defaultHrs(c))+'"></label></div>';
     h += '<div id="propout">'+propResult(c)+'</div></details>';
 
@@ -345,9 +340,7 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
   }
   function bindProp(){
     on('propadd',function(){ var c=calc(), r=propose(c); if(!r||r.impossible) return;
-      var ng={id:'g'+Date.now().toString(36)+'_0',name:(prop.name||'Lo nuevo').trim(),amount:r.amt,due:r.due}, lk=safeUrl(prop.link);
-      if(lk){ ng.link=lk; ng.prices=[{d:TODAY,a:r.amt}]; ng.priceOn=TODAY; }
-      S.goals.push(ng);
+      S.goals.push({id:'g'+Date.now().toString(36)+'_0',name:(prop.name||'Lo nuevo').trim(),amount:r.amt,due:r.due});
       prop={name:'',amount:'',hrs:''}; propOpen=false; save(); });
     on('propclear',function(){ prop={name:'',amount:'',hrs:''}; render(); });
   }
@@ -369,26 +362,11 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
     out+='<div class="row"><button class="btn" id="simadd">Agregar a mis metas</button><button class="btn ghost" id="simclear">Limpiar</button></div>';
     return out;
   }
-  function safeUrl(u){ u=String(u||'').trim(); if(!u) return ''; if(!/^https?:\/\//i.test(u)) u='https://'+u; try{ var x=new URL(u); return (x.protocol==='https:'||x.protocol==='http:')? x.href : ''; }catch(e){ return ''; } }
-  function shopName(u){ try{ return new URL(u).hostname.replace(/^www\./,'').replace(/^articulo\./,''); }catch(e){ return 'la tienda'; } }
-  function priceRow(g){
-    if(!g.link) return '';
-    var hist=g.prices||[], first=hist.length? hist[0] : null, diff = first? (+g.amount||0)-first.a : 0, out='<div class="price">';
-    out+='<a class="link" href="'+esc(g.link)+'" target="_blank" rel="noopener noreferrer">Ver en '+esc(shopName(g.link))+' ↗</a>';
-    if(priceEdit===g.id){
-      out+='<div class="row"><label for="newprice">Precio de hoy ($)<input id="newprice" type="number" min="0" step="100" inputmode="decimal" value="'+(g.amount||'')+'"></label><button class="btn" data-saveprice="'+g.id+'">Guardar</button><button class="btn ghost" id="cancelprice">Cancelar</button></div>';
-    } else {
-      out+='<span class="note">'+(g.priceOn?'Precio del '+fdate(g.priceOn):'Precio cargado al crearla')+(Math.abs(diff)>=1?' · '+(diff>0?'subió ':'bajó ')+money(Math.abs(diff))+' desde el '+fdate(first.d):'')+'</span>';
-      out+='<button class="link" data-price="'+g.id+'">Actualizar precio</button>';
-    }
-    return out+'</div>';
-  }
   function goalForm(g){
     return '<div class="goal editing"><div class="row"><label for="gname">Nombre<input id="gname" type="text" maxlength="40" value="'+esc(g.name)+'" placeholder="Ej: Alquiler"></label>'+
       '<label for="gamt">Monto ($)<input id="gamt" type="number" min="0" step="100" value="'+(g.amount||'')+'"></label>'+
       '<label for="gdue">'+(g.id==='new'?'Vence (primera cuota)':'Vence')+'<input id="gdue" type="date" value="'+(g.due||'')+'"></label>'+
       (g.id==='new'?'<label for="gcuotas">Cuotas mensuales<input id="gcuotas" type="number" min="1" max="36" step="1" value="1"></label>':'')+'</div>'+
-      '<div class="row"><label for="glink">Link del producto (opcional)<input id="glink" type="url" inputmode="url" value="'+esc(g.link||'')+'" placeholder="https://articulo.mercadolibre.com.ar/..."></label></div>'+
       (g.id==='new'?'<p class="note">Si es algo que pagás todos los meses, poné cuántas cuotas son y se crea una meta por mes con el mismo monto.</p>':'')+
       '<p class="note" id="gerr"></p><div class="row"><button class="btn" id="savegoal" data-id="'+g.id+'">Guardar meta</button><button class="btn ghost" id="cancelgoal">Cancelar</button></div></div>';
   }
@@ -400,7 +378,7 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
   function num(id){ return parseFloat(String(document.getElementById(id).value).replace(',','.'))||0; }
   function on(id,fn){ var el=document.getElementById(id); if(el) el.onclick=fn; }
 
-  var cfgOpen = false, bkMsg = '', confirmReset = false, confirmDel = null, simOpen = false, propOpen = false, priceEdit = null;
+  var cfgOpen = false, bkMsg = '', confirmReset = false, confirmDel = null, simOpen = false, propOpen = false;
   function val(id){ var el=document.getElementById(id); return el? el.value : ''; }
   function bindSim(){
     on('simadd',function(){ var extra=simGoals(); if(!extra.length) return; var base=Date.now().toString(36);
@@ -425,17 +403,12 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
       el.oninput=function(){ sim={name:val('sname'),amount:val('samt'),cuotas:val('scuotas'),due:val('sdue')}; document.getElementById('simout').innerHTML=simResult(calc()); bindSim(); }; });
     bindSim();
     var pb=document.getElementById('propbox'); if(pb) pb.ontoggle=function(){ propOpen=pb.open; };
-    ['pname','pamt','phrs','plink'].forEach(function(id){ var el=document.getElementById(id); if(!el) return;
-      el.oninput=function(){ prop={name:val('pname'),amount:val('pamt'),hrs:val('phrs'),link:val('plink')}; document.getElementById('propout').innerHTML=propResult(calc()); bindProp(); }; });
+    ['pname','pamt','phrs'].forEach(function(id){ var el=document.getElementById(id); if(!el) return;
+      el.oninput=function(){ prop={name:val('pname'),amount:val('pamt'),hrs:val('phrs')}; document.getElementById('propout').innerHTML=propResult(calc()); bindProp(); }; });
     bindProp();
     var cb=document.getElementById('cfgbox'); if(cb) cb.ontoggle=function(){ cfgOpen=cb.open; };
     on('bkout',exportBackup);
     var bi=document.getElementById('bkin'); if(bi) bi.onchange=function(){ if(bi.files[0]) importBackup(bi.files[0]); };
-    app.querySelectorAll('[data-price]').forEach(function(b){ b.onclick=function(){ priceEdit=b.getAttribute('data-price'); render(); var i=document.getElementById('newprice'); if(i){ i.focus(); i.select(); } }; });
-    app.querySelectorAll('[data-saveprice]').forEach(function(b){ b.onclick=function(){ var id=b.getAttribute('data-saveprice'), v=num('newprice');
-      if(v>0) S.goals.forEach(function(g){ if(g.id===id){ g.prices=g.prices||[{d:g.priceOn||TODAY,a:+g.amount||0}]; g.prices.push({d:TODAY,a:v}); g.amount=v; g.priceOn=TODAY; } });
-      priceEdit=null; save(); }; });
-    on('cancelprice',function(){ priceEdit=null; render(); });
     on('pastdays',function(){ showPast=!showPast; render(); });
     on('moremonths',function(){ showAll=!showAll; render(); });
     on('addgoal',function(){ editing='new'; render(); var n=document.getElementById('gname'); if(n) n.focus(); });
@@ -448,13 +421,9 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
       if(due < S.start){ err.textContent='El vencimiento tiene que ser después del '+fdate(S.start)+' (el día en que empezás a contar).'; return; }
       if(editing==='new'){
         var n=Math.max(1,Math.min(36,Math.round(num('gcuotas')||1))), base=Date.now().toString(36);
-        var lk=safeUrl(val('glink'));
-        for(var i=0;i<n;i++){ var ng={id:'g'+base+'_'+i,name:n>1? name+' ('+(i+1)+'/'+n+')' : name,amount:amt,due:addMonths(due,i)}; if(lk){ ng.link=lk; ng.prices=[{d:TODAY,a:amt}]; ng.priceOn=TODAY; } S.goals.push(ng); }
+        for(var i=0;i<n;i++) S.goals.push({id:'g'+base+'_'+i,name:n>1? name+' ('+(i+1)+'/'+n+')' : name,amount:amt,due:addMonths(due,i)});
       }
-      else S.goals.forEach(function(g){ if(g.id===editing){ var lk=safeUrl(val('glink'));
-        if(lk && !g.link){ g.prices=[{d:TODAY,a:amt}]; g.priceOn=TODAY; }
-        if(lk) g.link=lk; else { delete g.link; delete g.prices; delete g.priceOn; }
-        g.name=name; g.amount=amt; g.due=due; } });
+      else S.goals.forEach(function(g){ if(g.id===editing){ g.name=name; g.amount=amt; g.due=due; } });
       editing=null; save();
     });
     var gi=document.getElementById('gin'); if(gi) gi.oninput=function(){ document.getElementById('netprev').innerHTML=prev(num('gin')); };

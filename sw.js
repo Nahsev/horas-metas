@@ -1,5 +1,5 @@
 // Guarda la app para que abra sin internet. Cambiá VERSION cuando subas cambios.
-const VERSION = 'horas-v4';
+const VERSION = 'horas-v3';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-180.png'];
 
 self.addEventListener('install', e => {
