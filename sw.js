@@ -1,5 +1,5 @@
 // Guarda la app para que abra sin internet. Cambiá VERSION cuando subas cambios.
-const VERSION = 'horas-v8';
+const VERSION = 'horas-v9';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-180.png'];
 
 self.addEventListener('install', e => {
@@ -12,7 +12,7 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   // Primero la red (para tener siempre la última versión); si no hay internet, lo guardado.
   e.respondWith(
-    fetch(e.request).then(r => {
+    fetch(e.request, new URL(e.request.url).origin === location.origin ? {cache: 'no-cache'} : {}).then(r => {
       if (r.ok && new URL(e.request.url).origin === location.origin) {
         const copy = r.clone(); caches.open(VERSION).then(c => c.put(e.request, copy));
       }
