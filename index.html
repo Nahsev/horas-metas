@@ -119,6 +119,11 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
 
 .alts{display:flex;flex-direction:column;gap:4px;font-size:.85rem}
 .alts div{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:6px 10px;border-radius:8px;background:var(--bg)}
+.syncdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-left:6px;vertical-align:1px}
+.syncdot.ok{background:var(--ok)} .syncdot.busy{background:var(--star)} .syncdot.err,.syncdot.off{background:var(--miss)}
+.note.err{color:var(--miss)}
+input[type=password]{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;min-width:0}
+button.btn:disabled{opacity:.6;cursor:wait}
 .bk{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:12px}
 .row label.filebtn{flex:0 0 auto}
 .filebtn{display:inline-flex;flex-direction:row;align-items:center;font-size:inherit;font-weight:600;color:var(--accent);border:1px solid var(--accent);border-radius:9px;padding:9px 16px;cursor:pointer}
@@ -311,6 +316,7 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
       h += '<p class="note">Tocá un día para cargar cuánto ganaste. Se le resta el '+S.pct+'% automáticamente.</p>';
     }
 
+    h += accountPanel();
     h += '<details class="panel" id="cfgbox"'+((cfgOpen||!S.goals.length)?' open':'')+'><summary>Configuración</summary>';
     h += '<div class="row"><label for="rate">Ganás por hora aprox. ($, bruto)<input id="rate" type="number" min="0" step="50" value="'+S.rate+'"></label><label for="pctin">Descuento sobre lo que ganás (%)<input id="pctin" type="number" min="0" max="100" step="1" value="'+S.pct+'"></label></div>';
     h += '<p class="note">El valor por hora se usa para estimar las horas hasta que cargues días con horas; después se usa tu promedio real.</p>';
@@ -404,7 +410,7 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
   function stat(l,v){ return '<div class="stat"><span class="l">'+l+'</span><span class="v">'+v+'</span></div>'; }
   function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
   function fdate(k,long){ var d=parse(k); return (long? ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'][d.getDay()]+' ':'')+d.getDate()+' de '+['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][d.getMonth()]; }
-  function saveNote(){ return storageOk ? 'Todo queda guardado en este dispositivo. Para pasarlo a otro, usá la copia de seguridad.' : 'Este navegador no deja guardar datos (¿modo incógnito?). Lo que cargues se pierde al cerrar.'; }
+  function saveNote(){ return storageOk ? (A?'Se guarda en este dispositivo y en tu cuenta.':'Todo queda guardado en este dispositivo. Para verlo en otro, entrá con una cuenta.') : 'Este navegador no deja guardar datos (¿modo incógnito?). Lo que cargues se pierde al cerrar.'; }
   function num(id){ return parseFloat(String(document.getElementById(id).value).replace(',','.'))||0; }
   function on(id,fn){ var el=document.getElementById(id); if(el) el.onclick=fn; }
 
@@ -437,6 +443,7 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
       el.oninput=function(){ prop={name:val('pname'),amount:val('pamt'),hrs:val('phrs')}; document.getElementById('propout').innerHTML=propResult(calc()); bindProp(); }; });
     bindProp();
     var cb=document.getElementById('cfgbox'); if(cb) cb.ontoggle=function(){ cfgOpen=cb.open; };
+    bindAccount();
     on('bkout',exportBackup);
     var bi=document.getElementById('bkin'); if(bi) bi.onchange=function(){ if(bi.files[0]) importBackup(bi.files[0]); };
     app.querySelectorAll('[data-star]').forEach(function(b){ b.onclick=function(){ var id=b.getAttribute('data-star');
@@ -493,8 +500,90 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
 
   function save(){
     S.saved = Date.now();
-    try{ localStorage.setItem(KEY, JSON.stringify(S)); storageOk=true; }catch(e){ storageOk=false; }
+    persist();
     render();
+    schedulePush();
+  }
+  function persist(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); storageOk=true; }catch(e){ storageOk=false; } }
+
+  // ---- Cuenta y sincronización ----
+  var API='https://horas-metas-api.onrender.com', AUTHKEY='horas-auth', PENDKEY='horas-pending';
+  var A=null; try{ A=JSON.parse(localStorage.getItem(AUTHKEY)||'null'); }catch(e){}
+  var sync={state:'', msg:'', busy:false, at:0}, pushTimer=null, acctOpen=false, acctMode='login', acctErr='', confirmOut=false;
+  function pending(v){ try{ if(v===undefined) return localStorage.getItem(PENDKEY)==='1'; if(v) localStorage.setItem(PENDKEY,'1'); else localStorage.removeItem(PENDKEY); }catch(e){ return false; } }
+  function api(path, opts){
+    opts=opts||{}; var hd={'Content-Type':'application/json'}; if(A&&A.token) hd.Authorization='Bearer '+A.token;
+    return fetch(API+path,{method:opts.method||'GET',headers:hd,body:opts.body?JSON.stringify(opts.body):undefined}).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(j){ if(!r.ok){ var e=new Error(j.error||'Error '+r.status); e.status=r.status; e.body=j; throw e; } return j; });
+    });
+  }
+  function setSync(st,msg){ sync.state=st; sync.msg=msg||''; var el=document.getElementById('syncline'); if(el) el.innerHTML=syncText(); var sm=document.getElementById('acctsum'); if(sm) sm.innerHTML=acctSummary(); }
+  function syncText(){
+    if(sync.state==='busy') return 'Sincronizando… (si la app estuvo un rato sin usarse, puede tardar hasta un minuto)';
+    if(sync.state==='ok') return '✓ Sincronizado'+(sync.at?' a las '+new Date(sync.at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}):'');
+    if(sync.state==='off') return 'Sin conexión. Lo que cargues se sube cuando vuelva internet.';
+    if(sync.state==='err') return esc(sync.msg);
+    return '';
+  }
+  function acctSummary(){ return A? 'Cuenta: '+esc(A.user)+' <span class="syncdot '+(sync.state||'')+'"></span>' : 'Cuenta: entrá para sincronizar'; }
+  function takeServer(d, saved){ if(!d) return false; S=d; S.log=S.log||{}; S.off=S.off||{}; S.extra=S.extra||{}; S.workdays=S.workdays||[1,2,3,4,5,6]; S.saved=saved||S.saved; persist(); render(); return true; }
+  function fail(e){
+    if(e && e.status===401){ A=null; try{ localStorage.removeItem(AUTHKEY); }catch(x){} acctErr=e.message; render(); return; }
+    setSync(e && e.status? 'err':'off', e && e.status? e.message : '');
+  }
+  function schedulePush(){ if(!A) return; pending(true); clearTimeout(pushTimer); pushTimer=setTimeout(push, 1200); }
+  function push(){
+    if(!A) return; if(sync.busy){ clearTimeout(pushTimer); pushTimer=setTimeout(push, 2000); return; }
+    sync.busy=true; setSync('busy');
+    api('/api/data',{method:'PUT',body:{data:S,saved:S.saved||Date.now()}})
+    .then(function(){ pending(false); sync.at=Date.now(); setSync('ok'); })
+    .catch(function(e){ if(e.status===409 && e.body){ pending(false); takeServer(e.body.data,e.body.saved); sync.at=Date.now(); setSync('ok'); } else fail(e); })
+    .then(function(){ sync.busy=false; });
+  }
+  function pull(){
+    if(!A || sync.busy) return; if(pending()) return push();
+    sync.busy=true; setSync('busy');
+    api('/api/data').then(function(j){
+      if(j.data && (j.saved||0) > (S.saved||0)) takeServer(j.data, j.saved);
+      else if(!j.data || (j.saved||0) < (S.saved||0)){ sync.busy=false; push(); return; }
+      sync.at=Date.now(); setSync('ok');
+    }).catch(fail).then(function(){ sync.busy=false; });
+  }
+  function doAuth(mode){
+    var u=val('acctuser').trim(), pw=val('acctpass'); acctErr='';
+    if(!u||!pw){ acctErr='Completá usuario y contraseña.'; render(); return; }
+    var b=document.getElementById('acctgo'); if(b){ b.disabled=true; b.textContent='Conectando… (puede tardar hasta un minuto)'; }
+    api(mode==='register'?'/api/register':'/api/login',{method:'POST',body:{username:u,password:pw}}).then(function(j){
+      A={token:j.token,user:j.username}; try{ localStorage.setItem(AUTHKEY,JSON.stringify(A)); }catch(e){}
+      acctOpen=true;
+      // Al entrar: si la cuenta ya tiene datos se usan esos; si está vacía, se suben los de este dispositivo
+      if(j.data){ takeServer(j.data,j.saved); sync.at=Date.now(); setSync('ok'); render(); }
+      else { pending(true); render(); push(); }
+    }).catch(function(e){ acctErr = e.status? e.message : 'No hay conexión con el servidor. Probá de nuevo en un rato.'; acctOpen=true; render(); });
+  }
+  function accountPanel(){
+    var h='<details class="panel" id="acctbox"'+(acctOpen||acctErr?' open':'')+'><summary id="acctsum">'+acctSummary()+'</summary>';
+    if(A){
+      h+='<p class="note">Entraste como <b>'+esc(A.user)+'</b>. Lo que cargues acá aparece en cualquier dispositivo donde entres con esta cuenta.</p>';
+      h+='<p class="note" id="syncline">'+syncText()+'</p>';
+      h+='<div class="row"><button class="btn ghost" id="syncnow">Sincronizar ahora</button><button class="btn ghost" id="logout">'+(confirmOut?'¿Salir? Tocá de nuevo':'Salir de la cuenta')+'</button></div>';
+    } else {
+      var reg=acctMode==='register';
+      h+='<p class="note">'+(reg?'Creá una cuenta y se suben los datos que tenés en este dispositivo.':'Entrá con tu cuenta para ver tus datos en la compu y en el celular. Si la cuenta ya tiene datos, se usan esos.')+'</p>';
+      h+='<div class="row"><label for="acctuser">Usuario<input id="acctuser" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="30"></label>'+
+        '<label for="acctpass">Contraseña<input id="acctpass" type="password" autocomplete="'+(reg?'new-password':'current-password')+'" maxlength="100"></label></div>';
+      if(acctErr) h+='<p class="note err">'+esc(acctErr)+'</p>';
+      h+='<div class="row"><button class="btn" id="acctgo">'+(reg?'Crear cuenta':'Entrar')+'</button><button class="btn ghost" id="acctswitch">'+(reg?'Ya tengo cuenta':'Crear una cuenta')+'</button></div>';
+    }
+    return h+'</details>';
+  }
+  function bindAccount(){
+    var ab=document.getElementById('acctbox'); if(ab) ab.ontoggle=function(){ acctOpen=ab.open; };
+    on('acctgo',function(){ doAuth(acctMode); });
+    on('acctswitch',function(){ acctMode= acctMode==='register'?'login':'register'; acctErr=''; acctOpen=true; render(); });
+    var pw=document.getElementById('acctpass'); if(pw) pw.onkeydown=function(e){ if(e.key==='Enter') doAuth(acctMode); };
+    on('syncnow',function(){ pull(); });
+    on('logout',function(){ if(!confirmOut){ confirmOut=true; render(); return; } confirmOut=false; A=null; pending(false); try{ localStorage.removeItem(AUTHKEY); }catch(e){} sync.state=''; acctErr=''; render(); });
   }
 
   // copia de seguridad
@@ -516,6 +605,9 @@ input[type=text]{font:inherit;color:var(--ink);background:var(--bg);border:1px s
   }
 
   render();
+  pull();
+  document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible') pull(); });
+  window.addEventListener('online',function(){ pull(); });
   if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function(){});
   if('serviceWorker' in navigator && location.protocol!=='file:'){
     var hadCtrl=!!navigator.serviceWorker.controller, reloaded=false;
